@@ -77,9 +77,9 @@ func main() {
 			//fmt.Println(sum)
 			oder3 := "update elective set num = " + sum + " where id = " + strconv.Itoa(i)
 			//fmt.Println(oder3)
-			zxc, err := db.Prepare(oder3)
+			temp1, err := db.Prepare(oder3)
 			Check(err)
-			zxc.Exec()
+			temp1.Exec()
 			i ++
 		}
 
