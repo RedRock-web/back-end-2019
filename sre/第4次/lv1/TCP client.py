@@ -1,20 +1,19 @@
-#TCP客户端
 import socket
-ipPort = ("127.0.0.1", 999)    #域名,端口
 
-s = socket.socket()               #创建套接字对象
-s.connect(ipPort)           #连接服务器
+host = "localhost"
+port = 3131
+addr = (host, port)
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect(addr)
 
 while True:
-    inp = input("请输入要发送的信息:  ").strip()    #输入信息并将其进行转码
+    data = input("请输入数据!/输入q退出\n")
+    s.send(data.encode("utf-8"))
+    data1 = s.recv(1024).decode("utf-8")
+    print(data1)
+    if data == 'q':
+        break;
 
-    s.sendall(inp.encode())       #将信息发送到服务器
+s.close()
 
-    if inp == "exit":            #设置退出条件
-        print("结束通信!")
-        break
-
-    serverReply = s.recv(1024).decode()     #接收sever发送的反馈,并将其转码
-    print(serverReply)
-
-s.close()               #关闭socket
