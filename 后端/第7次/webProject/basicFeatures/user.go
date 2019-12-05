@@ -10,6 +10,35 @@ import (
 	"time"
 )
 
+func WebServerStart(db *sql.DB) {
+	var username string
+
+	r := gin.Default()
+
+	r.POST("/registe", func(c *gin.Context) {
+		Registe(db, c)
+	})
+	r.POST("/login", func(c *gin.Context) {
+		username = Login(db, c)
+	})
+	r.POST("/login/sendMsg", func(c *gin.Context) {
+		SendMsg(db, c, username)
+	})
+	r.POST("/login/getMsg", func(c *gin.Context) {
+		pid := GetPostPid(c)
+		GetMsg(db, c, pid)
+	})
+	r.POST("/login/logout", func(c *gin.Context) {
+		Logout(db, c, username)
+	})
+	r.POST("/login/root/deleteMsg", func(c *gin.Context) {
+		if IsAdminAuthority(db, c) {
+			DeleteMsg(db, c)
+		}
+	})
+	r.Run()
+}
+
 func Login(db *sql.DB, c *gin.Context) string {
 	username := c.PostForm("username")
 	password := c.DefaultPostForm("password", "admin")
@@ -21,7 +50,7 @@ func Login(db *sql.DB, c *gin.Context) string {
 				"message": "欢迎回来！" + username,
 			})
 		} else {
-			_, passwd := SelectDatabase(db, "user", username)
+			_, passwd := DatabaseSearch(db, "user", username)
 			if passwd == password {
 				//暂时不支持中文cookie，如果用户名是中文，则会报错
 				c.SetCookie(username, username, 10, "/login", "127.0.0.1", false, true)
@@ -72,18 +101,12 @@ func Registe(db *sql.DB, c *gin.Context) {
 			"message": "账号已注册！",
 		})
 	} else {
-		InsertDatabase(db, username, password)
+		InsertField(db, username, password)
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
 			"message": "注册成功！",
 		})
 	}
-}
-
-func InsertDatabase(db *sql.DB, username string, password string) {
-	stmt, err := db.Prepare("insert into user(username, password) values(?,?)")
-	CheckError(err)
-	stmt.Exec(username, password)
 }
 
 func IsRegiste(db *sql.DB, tableName string, username string) bool {
@@ -108,31 +131,10 @@ func IsRegiste(db *sql.DB, tableName string, username string) bool {
 	return judge
 }
 
-func OpenDatabase(username string, password string, databaseName string) (db *sql.DB) {
-	//fmt.Println("mysql", username + ":" + password + "@tcp(127.0.0.1:3306)/" + databaseName + "?charset=utf8")
-	db, err := sql.Open("mysql", username+":"+password+"@tcp(127.0.0.1:3306)/"+databaseName+"?charset=utf8")
-	CheckError(err)
-	return db
-}
-
 func CheckError(err error) {
 	if err != nil {
 		panic(err)
 	}
-}
-
-func SelectDatabase(db *sql.DB, tableName string, username string) (name string, passwd string) {
-	var id string
-	var authority int
-
-	selectOder := "select * from " + tableName + " where username= \"" + username + "\""
-	//fmt.Println(a)
-	stmt, err := db.Query(selectOder)
-	CheckError(err)
-	for stmt.Next() {
-		stmt.Scan(&id, &name, &passwd, &authority)
-	}
-	return name, passwd
 }
 
 func SendMsg(db *sql.DB, c *gin.Context, username string) {
@@ -175,35 +177,6 @@ func GetMsgByPid(db *sql.DB, c *gin.Context) (int) {
 		})
 	}
 	return pid
-}
-
-func WebServerStart(db *sql.DB) {
-	var username string
-
-	r := gin.Default()
-
-	r.POST("/registe", func(c *gin.Context) {
-		Registe(db, c)
-	})
-	r.POST("/login", func(c *gin.Context) {
-		username = Login(db, c)
-	})
-	r.POST("/login/sendMsg", func(c *gin.Context) {
-		SendMsg(db, c, username)
-	})
-	r.POST("/login/getMsg", func(c *gin.Context) {
-		pid := GetPostPid(c)
-		GetMsg(db, c, pid)
-	})
-	r.POST("/login/logout", func(c *gin.Context) {
-		Logout(db, c, username)
-	})
-	r.POST("/login/root/deleteMsg", func(c *gin.Context) {
-		if IsAdminAuthority(db, c) {
-			DeleteMsg(db, c)
-		}
-	})
-	r.Run()
 }
 
 func PidToId(db *sql.DB, c *gin.Context, pid int) (idList [] int) {
@@ -285,18 +258,19 @@ func IsAdminAuthority(db *sql.DB, c *gin.Context) (flag bool) {
 	if err == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  200,
-			"message": "欢迎登录管理员账号！",
+			"message": "管理员,你好！",
 		})
 		flag = true
 	} else {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  200,
-			"message": "管理员,你好！",
+			"message": "请登录管理员账号！",
 		})
 		flag = false
 	}
 	return flag
 }
+
 func DeleteMsg(db *sql.DB, c *gin.Context) {
 	id := c.PostForm("id")
 	stmt, err := db.Prepare("delete from message where id = ?")
