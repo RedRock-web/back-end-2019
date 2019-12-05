@@ -2,16 +2,18 @@ package basicFeatures
 
 import (
 	"database/sql"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 	"net/http"
+	"strconv"
 	"time"
 )
 
 func Login(db *sql.DB, c *gin.Context) string {
 	username := c.PostForm("username")
 	password := c.DefaultPostForm("password", "admin")
-	if IsRegiste(db, "student", username) {
+	if IsRegiste(db, "user", username) {
 		_, err := c.Cookie(username)
 		if err == nil {
 			c.JSON(http.StatusOK, gin.H{
@@ -19,10 +21,10 @@ func Login(db *sql.DB, c *gin.Context) string {
 				"message": "欢迎回来！" + username,
 			})
 		} else {
-			_, passwd := SelectDatabase(db, "student", username)
+			_, passwd := SelectDatabase(db, "user", username)
 			if passwd == password {
 				//暂时不支持中文cookie，如果用户名是中文，则会报错
-				c.SetCookie(username, "loginSucessedly!", 100, "/", "127.0.0.1", false, true)
+				c.SetCookie(username, username, 10, "/login", "127.0.0.1", false, true)
 				c.JSON(http.StatusOK, gin.H{
 					"status":  http.StatusOK,
 					"message": "登录成功！",
@@ -43,11 +45,28 @@ func Login(db *sql.DB, c *gin.Context) string {
 	return username
 }
 
+//暂时出了点问题，无法成功删除cookie
+func Logout(db *sql.DB, c *gin.Context, username string) {
+	_, err := c.Cookie(username)
+	if err == nil {
+		c.SetCookie(username, username, -1, "/login", "127.0.0.1", false, true)
+		c.JSON(http.StatusOK, gin.H{
+			"status":  200,
+			"message": "账号已登出！",
+		})
+	} else {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  200,
+			"message": "您并未登录，无需登出！",
+		})
+	}
+}
+
 func Registe(db *sql.DB, c *gin.Context) {
 	username := c.PostForm("username")
 	password := c.PostForm("password")
 
-	if IsRegiste(db, "student", username) {
+	if IsRegiste(db, "user", username) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
 			"message": "账号已注册！",
@@ -62,7 +81,7 @@ func Registe(db *sql.DB, c *gin.Context) {
 }
 
 func InsertDatabase(db *sql.DB, username string, password string) {
-	stmt, err := db.Prepare("insert into student(username, password) values(?,?)")
+	stmt, err := db.Prepare("insert into user(username, password) values(?,?)")
 	CheckError(err)
 	stmt.Exec(username, password)
 }
@@ -72,13 +91,14 @@ func IsRegiste(db *sql.DB, tableName string, username string) bool {
 	var name string
 	var passwd string
 	var judge bool
+	var authority int
 
 	selectOder := "select * from " + tableName + " where username= \"" + username + "\""
 	//fmt.Println(a)
 	stmt, err := db.Query(selectOder)
 	CheckError(err)
 	for stmt.Next() {
-		stmt.Scan(&id, &name, &passwd)
+		stmt.Scan(&id, &name, &passwd, &authority)
 	}
 	if name != "" {
 		judge = true
@@ -103,13 +123,14 @@ func CheckError(err error) {
 
 func SelectDatabase(db *sql.DB, tableName string, username string) (name string, passwd string) {
 	var id string
+	var authority int
 
 	selectOder := "select * from " + tableName + " where username= \"" + username + "\""
 	//fmt.Println(a)
 	stmt, err := db.Query(selectOder)
 	CheckError(err)
 	for stmt.Next() {
-		stmt.Scan(&id, &name, &passwd)
+		stmt.Scan(&id, &name, &passwd, &authority)
 	}
 	return name, passwd
 }
@@ -137,7 +158,7 @@ func SendMsg(db *sql.DB, c *gin.Context, username string) {
 	}
 }
 
-func GetMsg(db *sql.DB, c *gin.Context) {
+func GetMsgByPid(db *sql.DB, c *gin.Context) (int) {
 	var pid, id int
 	var username, message, time string
 
@@ -153,10 +174,12 @@ func GetMsg(db *sql.DB, c *gin.Context) {
 			"message":  message,
 		})
 	}
+	return pid
 }
 
-func WebServerStart(db *sql.DB)  {
+func WebServerStart(db *sql.DB) {
 	var username string
+
 	r := gin.Default()
 
 	r.POST("/registe", func(c *gin.Context) {
@@ -169,7 +192,118 @@ func WebServerStart(db *sql.DB)  {
 		SendMsg(db, c, username)
 	})
 	r.POST("/login/getMsg", func(c *gin.Context) {
-		GetMsg(db, c)
+		pid := GetPostPid(c)
+		GetMsg(db, c, pid)
+	})
+	r.POST("/login/logout", func(c *gin.Context) {
+		Logout(db, c, username)
+	})
+	r.POST("/login/root/deleteMsg", func(c *gin.Context) {
+		if IsAdminAuthority(db, c) {
+			DeleteMsg(db, c)
+		}
 	})
 	r.Run()
+}
+
+func PidToId(db *sql.DB, c *gin.Context, pid int) (idList [] int) {
+	var id int
+	var username, message, time string
+
+	stmt, err := db.Query("select * from message where pid=" + strconv.Itoa(pid))
+	CheckError(err)
+	for stmt.Next() {
+		stmt.Scan(&id, &pid, &username, &message, &time)
+		idList = append(idList, id)
+	}
+	//for _, v := range idList {
+	//	fmt.Println(v)
+	//}
+	return idList
+}
+
+func IdToMsg(db *sql.DB, c *gin.Context, id int) {
+	var pid int
+	var username, message, time string
+
+	stmt, err := db.Query("select * from message where id=" + strconv.Itoa(id))
+	CheckError(err)
+	for stmt.Next() {
+		stmt.Scan(&id, &pid, &username, &message, &time)
+		c.JSON(http.StatusOK, gin.H{
+			"time":     time,
+			"username": username,
+			"message":  message,
+		})
+	}
+}
+
+func GetPostPid(c *gin.Context) (int) {
+	pidTem := c.DefaultPostForm("pid", "0")
+	//fmt.Println(pidTem)
+	pid, _ := strconv.Atoi(pidTem)
+	//fmt.Println(pid)
+	return pid
+}
+
+func IdToPidId(db *sql.DB, c *gin.Context, id int) (idList [] int, err error) {
+	var pid int
+	var username, message, time string
+
+	stmt, err := db.Query("select * from message where pid=" + strconv.Itoa(id))
+	CheckError(err)
+	for stmt.Next() {
+		stmt.Scan(&id, &pid, &username, &message, &time)
+		idList = append(idList, id)
+	}
+
+	return idList, err
+}
+
+func GetMsg(db *sql.DB, c *gin.Context, pid int) {
+	fmt.Println(pid)
+	idList := PidToId(db, c, pid)
+	for k, id1 := range idList {
+		c.String(200, strconv.Itoa(k+1)+"楼\n")
+		IdToAllMsg(db, c, id1)
+	}
+
+}
+
+func IdToAllMsg(db *sql.DB, c *gin.Context, id int) {
+	IdToMsg(db, c, id)
+	idList, err := IdToPidId(db, c, id)
+	if err == nil {
+		for _, id1 := range (idList) {
+			IdToAllMsg(db, c, id1)
+		}
+	}
+}
+
+func IsAdminAuthority(db *sql.DB, c *gin.Context) (flag bool) {
+	_, err := c.Cookie("root")
+	if err == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  200,
+			"message": "欢迎登录管理员账号！",
+		})
+		flag = true
+	} else {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  200,
+			"message": "管理员,你好！",
+		})
+		flag = false
+	}
+	return flag
+}
+func DeleteMsg(db *sql.DB, c *gin.Context) {
+	id := c.PostForm("id")
+	stmt, err := db.Prepare("delete from message where id = ?")
+	CheckError(err)
+	stmt.Exec(id)
+	c.JSON(200, gin.H{
+		"status":  200,
+		"message": "删除成功！",
+	})
 }
