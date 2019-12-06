@@ -6,7 +6,5 @@ import (
 )
 
 func main() {
-	db := basicFeatures.OpenDatabase("root", "mima", "chatBord")
-	defer db.Close()
-	basicFeatures.WebServerStart(db)
+	basicFeatures.WebServerStart()
 }
